@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta property="og:description" content="DraftSolver">
-<title>Draft Solver v5.0</title>
+<title>Draft Solver v5.0.3</title>
 <style>
 :root{
   --bg:#05080c; --panel:#0c131b; --panel2:#111c27; --line:#1d2c3a;
@@ -118,7 +118,7 @@ details.hlp p{font-size:12px;color:var(--mut);margin:8px 0 0;line-height:1.55}
 </head>
 <body>
 <header>
-  <h1 class="cap">&#11041; Draft Solver <span style="font-size:11px;opacity:.55;font-weight:400;letter-spacing:0">v5.0</span></h1>
+  <h1 class="cap">&#11041; Draft Solver <span style="font-size:11px;opacity:.55;font-weight:400;letter-spacing:0">v5.0.3</span></h1>
   <div class="cap sub">pacwyn draft optimiser</div>
 </header>
 
@@ -248,7 +248,16 @@ details.hlp p{font-size:12px;color:var(--mut);margin:8px 0 0;line-height:1.55}
       <div id="editFormList" style="display:flex;flex-direction:column;gap:7px;max-height:55vh;overflow-y:auto"></div>
     </div>
   </div>
-  <button class="btn" onclick="runSolve()" style="margin-bottom:12px">Solve best XI</button>
+  <button class="btn" onclick="runSolve()" style="margin-bottom:8px">Solve best XI</button>
+  <details class="hlp" style="margin-bottom:10px"><summary>Advanced &mdash; solver settings</summary>
+    <div style="margin-top:8px">
+      <label style="font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;display:block">Rating Ceiling &mdash; <span id="ratingCeilLabel" style="color:var(--ink);font-weight:800">95</span></label>
+      <input type="range" id="ratingCeilSlider" min="0" max="19" value="10" style="width:100%;margin:0 0 4px;accent-color:var(--cyan)" oninput="updateRatingCeilLabel()">
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--mut);margin-bottom:8px"><span>85 &mdash; min</span><span>95 &mdash; default</span><span>104 &mdash; max</span></div>
+      <p class="tiny" style="margin:0">The highest team rating the solver considers possible. <b>Lower = faster but may silently skip the optimal XI if your cards are high-rated. Higher = safer but slower.</b> Default (99) is correct for almost every draft.</p>
+      <div id="ratingCeilWarn" style="display:none;font-size:11px;color:var(--warn);background:var(--panel2);border-left:2px solid var(--warn);padding:7px 10px;border-radius:0 7px 7px 0;margin-top:8px">&#9888; Below default &mdash; the solver may miss the best XI if any card is high enough to push the team rating above <span id="ratingCeilWarnVal">99</span>. Only lower this if searches are crashing or too slow.</div>
+    </div>
+  </details>
   <div id="solveOut"></div>
 
   <div class="panel" id="mgrPanel" style="display:none">
@@ -289,10 +298,9 @@ details.hlp p{font-size:12px;color:var(--mut);margin:8px 0 0;line-height:1.55}
 <!-- ===================== HELPER ===================== -->
 <div class="view" id="v-help">
 <div class="wrap">
-  <div class="note">These weights drive the <b>in-pick helper</b> &mdash; the take / hold hints that appear inside each slot as you fill the board. Higher = the judge prefers it more. The squad toggle and the two &ldquo;squad mode&rdquo; weights only bite once you&rsquo;ve started filling the board.</div>
+  <div class="note">These weights drive the <b>in-pick helper</b> &mdash; the take / hold hints that appear inside each slot as you fill the board. Higher = the judge prefers it more. Squad-awareness (clash &amp; position awareness) is always on for the live helper. The two &ldquo;squad mode&rdquo; weights only bite once you&rsquo;ve started filling the board.</div>
   <div class="panel">
     <h2>Helper weights</h2>
-    <label style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink);margin:4px 0 8px"><input type="checkbox" id="hSquad" checked> Factor in my current board &amp; formation (clash &amp; position awareness)</label>
     <label style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink);margin:4px 0 8px"><input type="checkbox" id="hNoHold"> No-hold drafting &mdash; always recommend TAKE the top option (never suggest a hold)</label>
     <p class="tiny" style="margin:0 0 6px">Bump the things you care about; reset any time.</p>
     <div id="hwGrid"></div>
@@ -305,8 +313,8 @@ details.hlp p{font-size:12px;color:var(--mut);margin:8px 0 0;line-height:1.55}
     </details>
   </div>
   <div class="panel">
-    <details class="hlp"><summary>Manual board judge (optional)</summary>
-    <p class="tiny" style="margin:6px 0">The in-pick helper already judges automatically as you fill a slot. This standalone judge is here if you want to weigh options without touching the board.</p>
+    <details class="hlp"><summary>Pure card evaluator (no board context)</summary>
+    <p class="tiny" style="margin:6px 0">Scores cards in isolation using only the weights above &mdash; no board, no clash penalties, no formation context. Useful for comparing raw card value before a draft or away from the board.</p>
     <div class="combo" style="margin-bottom:7px"><input type="text" id="h-label" placeholder="Type a name, or 'name rating' e.g. Van Dijk 90" autocomplete="off"><div class="combolist" id="h-label-list"></div></div>
     <div class="seg" id="hTypeSeg">
       <button class="on" data-t="normal">Normal</button>
@@ -326,7 +334,7 @@ details.hlp p{font-size:12px;color:var(--mut);margin:8px 0 0;line-height:1.55}
       <button class="btn gho sm" id="helpCancelBtn" onclick="cancelHelpEdit()" style="display:none;flex:0 0 auto">Cancel edit</button>
     </div>
     <div id="helpList" style="margin-top:10px"></div>
-    <button class="btn" style="margin-top:8px" onclick="judgeBoard()">Judge board</button>
+    <button class="btn" style="margin-top:8px" onclick="judgeBoard()">Evaluate cards</button>
     <button class="btn gho sm" style="margin-top:8px" onclick="clearHelp()">Clear</button>
     <div id="helpOut" style="margin-top:10px"></div>
     </details>
@@ -452,8 +460,7 @@ const POSALL=["GK","LB","CB","RB","CDM","CM","LM","RM","CAM","LW","RW","ST"];
 // formation slot value: you only get a card's PRIMARY position, and on the starting XI you can't use alt positions.
 // CDM great (Caicedo/Xhaka-tier picks) > CAM/CB/ST good > CM/LW/RW meh > LM/RM weak > LB/RB bad. GK is its own unique slot.
 const PW={CDM:5,CAM:4,CB:4,ST:4,CM:3,LW:3,RW:3,GK:3,LM:2,RM:2,LB:1,RB:1};
-// captain helper uses the INVERSE: a position with bad fill choices (LB/RB) is a GOOD card to grab, if nation/league/club are good too.
-const POSSCARCE={LB:4,RB:4,LM:3,RM:3,GK:3,CM:2,LW:2,RW:2,CAM:1,CB:1,ST:1,CDM:0};
+// Positional scarcity is now derived from the live DB via posScarceN() — see helpValue().
 
 // Formation position weights — drive the "Best fit" ranking in the Formation tab.
 // Hard-coded philosophy: CDM is the gold standard (deepest 82+ pool, most impactful pick).
@@ -742,11 +749,11 @@ let _solveCache=null,_squadOverride=null,_urgentPos=null,_pendFactor=1; // Phase
 let _lastFullRedundant=false; // set by squadAdjust; read by XI-boost phase to suppress boost for commit-clashing cards
 let _evalingSiblings=false; // recursion guard: prevents sibling helpValue calls from triggering further sibling evals
 let NAT_RANK={},LG_RANK={},NAT_COUNT={},CLB_COUNT={},LG_COUNT={},DB_M=1; // raw card counts per nation/club/hero-league + total, from the live DB
-const SHAPE_DEF={clashDraws:23,iconKeep:0.30,iconErosion:0.10,heroFull:3,heroPenalty:0.22,normalFloor:0.45,normalSlope:5,clashBase:0.6,clashStack:0.50,holdSizeBase:0.30,holdDomBoost:0.40,redundancySurcharge:0.6,iconRarityRefundCap:0.6,takeThreshold:5,premHeroRatingThreshold:96,premHeroRatingGap:2,premHeroWaiverLow:0.50,premHeroWaiverHigh:0.20,premHeroPosWaiver:0.40,commonNatCount:10,commonClubCount:3,commonNatPenalty:0.25,commonClubPenalty:0.25,commonHeroLeaguePenalty:0,commonHeroLeagueCount:0,lowIconPenaltyMin:0.25,lowIconPenaltyMax:0.75,dominantClashGap:5};
+const SHAPE_DEF={clashDraws:23,iconKeep:0.30,iconErosion:0.10,heroFull:3,heroPenalty:0.22,normalFloor:0.45,normalSlope:5,clashBase:0.6,clashStack:0.50,holdSizeBase:0.30,holdDomBoost:0.40,redundancySurcharge:0.6,iconRarityRefundCap:0.6,takeThreshold:5,premHeroRatingThreshold:96,premHeroRatingGap:2,premHeroPenaltyFracLow:1,premHeroPenaltyFracHigh:1,premHeroPenaltyFracUrgentPos:0.40,commonNatCount:10,commonClubCount:3,commonNatPenalty:0.25,commonClubPenalty:0.25,commonHeroLeaguePenalty:0,commonHeroLeagueCount:0,lowIconPenaltyMin:0.25,lowIconPenaltyMax:0.75,dominantClashGap:5,outOfFormationPenalty:10};
 // Inputs floored at 0 because a negative value here would flip the formula's intent (e.g. extra icons/heroes
 // getting MORE valuable instead of less). clashBase also gets a max: above 2 a mild clash can end up scoring
 // worse than a severe one (see clashBase's label below), so 2 is the point past which the slider works against itself.
-const SHAPE_BOUNDS={clashDraws:[1,100],iconKeep:[0,1],heroFull:[0,10],normalFloor:[0,1],takeThreshold:[0,20],clashBase:[0,2],clashStack:[0,2],holdSizeBase:[0,1],holdDomBoost:[0,1],heroPenalty:[0,2],normalSlope:[0.1,20],iconErosion:[0,1],iconRarityRefundCap:[0,1],redundancySurcharge:[0,2],premHeroRatingThreshold:[80,105],premHeroRatingGap:[1,10],premHeroWaiverLow:[0,1],premHeroWaiverHigh:[0,1],premHeroPosWaiver:[0,1],commonNatCount:[0,30],commonClubCount:[0,20],commonNatPenalty:[0,1],commonClubPenalty:[0,1],commonHeroLeaguePenalty:[0,1],commonHeroLeagueCount:[0,30],lowIconPenaltyMin:[0,1],lowIconPenaltyMax:[0,2],dominantClashGap:[0,30]};
+const SHAPE_BOUNDS={clashDraws:[1,100],iconKeep:[0,1],heroFull:[0,10],normalFloor:[0,1],takeThreshold:[0,20],clashBase:[0,2],clashStack:[0,2],holdSizeBase:[0,1],holdDomBoost:[0,1],heroPenalty:[0,2],normalSlope:[0.1,20],iconErosion:[0,1],iconRarityRefundCap:[0,1],redundancySurcharge:[0,2],premHeroRatingThreshold:[80,105],premHeroRatingGap:[1,10],premHeroPenaltyFracLow:[0,1],premHeroPenaltyFracHigh:[0,1],premHeroPenaltyFracUrgentPos:[0,1],commonNatCount:[0,30],commonClubCount:[0,20],commonNatPenalty:[0,1],commonClubPenalty:[0,1],commonHeroLeaguePenalty:[0,1],commonHeroLeagueCount:[0,30],lowIconPenaltyMin:[0,1],lowIconPenaltyMax:[0,2],dominantClashGap:[0,30],outOfFormationPenalty:[0,50]};
 let SHAPE={...SHAPE_DEF}; // tunable: clash-draw count (rarity = P(no clash over this many random draws)) + icon/hero diminishing
 const _SHAPE_SAVE_KEY='pacwyn_shape_v1';
 function saveShapeLocal(){try{localStorage.setItem(_SHAPE_SAVE_KEY,JSON.stringify(SHAPE));}catch(e){}}
@@ -1427,7 +1434,7 @@ function renderSlotEditor(){
   $('#capCancelBtn').style.display=isCap?'block':'none';
   $('#slotTitle').textContent=isCap?'Captain':s.label+(s.kind==='pos'?' (starting)':'');
   if(isCap){
-    $('#slotNote').innerHTML='Your first pick. Add this board\u2019s options \u2014 the helper rates them \u2014 then tap \u2605 to make one your captain (you\u2019ll choose which position he fills). Always committed, never benched.';
+    $('#slotNote').innerHTML='Your first pick. Add the options you\u2019re offered \u2014 the helper rates them \u2014 then tap \u2605 to commit one as captain (you\u2019ll choose which position). <b>Always TAKE</b> \u2014 the captain slot cannot be held or skipped. (Skipping the entire board is fine; but if you\u2019re picking, you must commit one now.)';
   }else{
     const st=slotState(s);
     $('#slotNote').innerHTML=st==='bust'?'Marked <b>busted</b> \u2014 ignored by the solver. Add a player to un-bust.':
@@ -1654,7 +1661,8 @@ function scoreXI(xi){
 }
 
 /* ============================ SOLVER (DFS + bound) ============================ */
-function solveBest(form,cards,nodeCap){
+function solveBest(form,cards,nodeCap,ratingCeil){
+  const RC=ratingCeil!==undefined?ratingCeil:99;
   const slots=form.slots;
   const cand=slots.map(s=>cards.filter(c=>c.pos.includes(s)));
   if(cand.some(l=>l.length===0))
@@ -1682,7 +1690,7 @@ function solveBest(form,cards,nodeCap){
       const partialHasHero=partial.some(c=>c.type==='hero')?1:0;
       const iconBonus=partialHasIcon||Math.min(1,remaining);
       const heroBonus=partialHasHero||Math.min(1,remaining);
-      const ub=99+33
+      const ub=RC+33
         +(new Set(partial.map(c=>c.nation)).size+remaining)
         +(new Set(partial.map(leagueOf)).size+remaining)
         +(new Set(partial.filter(c=>c.type==='normal').map(c=>c.club)).size+iconBonus+heroBonus+remaining);
@@ -1806,12 +1814,21 @@ let _solverWorker=null;
 function _buildWorkerSrc(){
   return [futRating,leagueOf,trueChem,scoreXI,solveBest].map(f=>f.toString()).join('\n')
   +'\nself.onmessage=function(e){'
-  +'var r=solveBest(e.data.form,e.data.cards,e.data.nodeCap);'
-  +'r.bestXIs.forEach(function(t){var s=t.sc;'
+  +'var r=solveBest(e.data.form,e.data.cards,e.data.nodeCap,e.data.ratingCeil);'
+  +'if(r.bestXIs){r.bestXIs.forEach(function(t){var s=t.sc;'
   +'s.nationSet=Array.from(s.nationSet);'
   +'s.leagueSet=Array.from(s.leagueSet);'
-  +'s.clubSet=Array.from(s.clubSet);});'
+  +'s.clubSet=Array.from(s.clubSet);});}'
+  +'else{r.bestXIs=[];}'
   +'self.postMessage(r);};';
+}
+function getRatingCeil(){const el=$('#ratingCeilSlider');return el?85+parseInt(el.value):95;}
+function updateRatingCeilLabel(){
+  const el=$('#ratingCeilSlider');if(!el)return;
+  const v=parseInt(el.value),ceil=85+v;
+  const lbl=$('#ratingCeilLabel');if(lbl)lbl.textContent=ceil;
+  const warn=$('#ratingCeilWarn');if(warn)warn.style.display=v<10?'block':'none';
+  const warnVal=$('#ratingCeilWarnVal');if(warnVal)warnVal.textContent=ceil;
 }
 function runSolve(nodeCap){
   syncAllSlots();
@@ -1821,9 +1838,21 @@ function runSolve(nodeCap){
   const cap=nodeCap||3000000;
   _showSolverOverlay();
   out.innerHTML='<div class="note" style="color:var(--mut)">\u23f3 Solving\u2026'+(cap>3000000?' (extended search \u2014 '+Math.round(cap/1000000)+'M node cap)':'')+'</div>';
-  setTimeout(()=>_runSolveInner(cap),30);
+  setTimeout(()=>_runSolveInner(cap,getRatingCeil()),30);
 }
-function _runSolveInner(cap){
+// Prepended to solveOut whenever the synchronous fallback ran instead of the Worker.
+// The result below is real but may be shallower than a full Worker solve — flag it clearly.
+function _prependIosFallbackWarning(out){
+  const banner=document.createElement('div');
+  banner.className='note';
+  banner.style.borderColor='var(--warn)';
+  banner.style.marginBottom='10px';
+  banner.innerHTML='&#9888; <b>This result may not be optimal.</b> The background solver failed (likely an iOS limitation), so a fallback search ran with a reduced node cap. '
+    +'The squad below is valid but a deeper search might find a better one. '
+    +'If you are on iOS, please report this issue.';
+  out.insertBefore(banner,out.firstChild);
+}
+function _runSolveInner(cap,ratingCeil){
   const out=$('#solveOut');
   const form=FORMS.find(f=>f.name===chosenForm),t0=performance.now();
   // Terminate any leftover worker from a previous (interrupted) solve.
@@ -1833,8 +1862,27 @@ function _runSolveInner(cap){
       const blob=new Blob([_buildWorkerSrc()],{type:'application/javascript'});
       const url=URL.createObjectURL(blob);
       _solverWorker=new Worker(url);
-      URL.revokeObjectURL(url);
+      // iOS Safari fix: do NOT revoke the Blob URL immediately — Safari may not have
+      // finished reading the worker source yet, causing a silent load failure and a
+      // worse-than-expected solve. Revoke only after the worker finishes or errors.
+      let _workerUrl=url;
+      function _revokeWorkerUrl(){if(_workerUrl){URL.revokeObjectURL(_workerUrl);_workerUrl=null;}}
+      // Safety net: if the worker dies silently (iOS memory pressure, background eviction),
+      // fall back to a synchronous solve after 90 s rather than hanging the overlay forever.
+      const _workerTimeout=setTimeout(function(){
+        if(!_solverWorker)return;
+        _solverWorker.terminate();_solverWorker=null;_revokeWorkerUrl();
+        // Synchronous fallback with a reduced cap so it completes quickly on-device.
+        const reducedCap=Math.min(cap,1000000);
+        out.innerHTML='<div class="note" style="border-color:var(--warn)">&#9888; Retrying&hellip;</div>';
+        setTimeout(function(){
+          const r2=solveBest(form,cards,reducedCap,ratingCeil),ms2=Math.round(performance.now()-t0);
+          _hideSolverOverlay();_handleSolveResult(r2,reducedCap,form,ms2,out);
+          _prependIosFallbackWarning(out);
+        },30);
+      },90000);
       _solverWorker.onmessage=function(e){
+        clearTimeout(_workerTimeout);_revokeWorkerUrl();
         _solverWorker=null;
         const r=e.data,ms=Math.round(performance.now()-t0);
         // Restore Sets that were serialised as Arrays for structured-clone transfer.
@@ -1846,22 +1894,41 @@ function _runSolveInner(cap){
         _handleSolveResult(r,cap,form,ms,out);
       };
       _solverWorker.onerror=function(err){
+        clearTimeout(_workerTimeout);_revokeWorkerUrl();
         _solverWorker=null;_hideSolverOverlay();
-        out.innerHTML='<div class="note" style="border-color:var(--bad)">Solver error: '+(err.message||err)+'</div>';
+        console.warn('[DraftSolver] Worker onerror — message:',err.message,'filename:',err.filename,'lineno:',err.lineno,err);
+        // iOS sometimes kills the worker with a non-descriptive error when the Blob
+        // URL was revoked too early or under memory pressure. Fall back synchronously
+        // with a reduced cap rather than showing a dead-end error message.
+        // We treat it as an iOS-style death only when there is genuinely no useful info.
+        const isLikelyIosWorkerDeath=(!err.message||err.message==='Script error.'||err.message==='')&&!err.filename&&!err.lineno;
+        if(isLikelyIosWorkerDeath){
+          out.innerHTML='<div class="note" style="border-color:var(--warn)">&#9888; Retrying&hellip;</div>';
+          setTimeout(function(){
+            const reducedCap=Math.min(cap,1000000);
+            const r2=solveBest(form,cards,reducedCap,ratingCeil),ms2=Math.round(performance.now()-t0);
+            _hideSolverOverlay();_handleSolveResult(r2,reducedCap,form,ms2,out);
+            _prependIosFallbackWarning(out);
+          },30);
+        } else {
+          out.innerHTML='<div class="note" style="border-color:var(--bad)">Solver error: '+(err.message||err)+'</div>';
+        }
       };
       // Deep-copy cards so the worker has its own snapshot (avoids any main-thread race).
       _solverWorker.postMessage({
         form:{name:form.name,slots:form.slots.slice()},
         cards:cards.map(c=>Object.assign({},c,{pos:c.pos.slice()})),
-        nodeCap:cap
+        nodeCap:cap,
+        ratingCeil:ratingCeil
       });
       return;
-    }catch(ex){/* Worker creation failed — fall through to synchronous solve */}
+    }catch(ex){console.warn('[DraftSolver] Worker creation failed, using synchronous fallback. Reason:',ex);}
   }
   // Synchronous fallback (no Worker support or Blob URL unavailable).
-  const r=solveBest(form,cards,cap),ms=Math.round(performance.now()-t0);
+  const r=solveBest(form,cards,cap,ratingCeil),ms=Math.round(performance.now()-t0);
   _hideSolverOverlay();
   _handleSolveResult(r,cap,form,ms,out);
+  _prependIosFallbackWarning(out);
 }
 function _handleSolveResult(r,cap,form,ms,out){
   if(r.error&&!/no eligible card/.test(r.error)){out.innerHTML='<div class="note" style="border-color:var(--bad)">'+r.error+'</div>';return}
@@ -1885,6 +1952,23 @@ function _handleSolveResult(r,cap,form,ms,out){
       const emSc=Object.assign({},em.sc,{chem:em.chem,total:em.sc.rating+em.chem+em.sc.nations+em.sc.leagues+em.sc.clubs});
       // oopIds: set of card ids that are OOP placeholders — pickMgr uses this to score subs correctly.
       const oopIds=new Set(em.pick.filter((_,i)=>em.oop[i]).map(c=>c&&c.id));
+      // Build pick-per-hold exactly like renderSummary does
+      const ord=id=>board?board.findIndex(s=>s.id===id):0;
+      const lblOf=id=>{const s=board&&board.find(x=>x.id===id);return s?s.label:id;};
+      const holdPicks={};em.pick.filter(Boolean).forEach(c=>{if(c.hold)holdPicks[c.hold]=c.label;});
+      const hpEntries=Object.entries(holdPicks).sort((a,b)=>ord(a[0])-ord(b[0]));
+      const hp=hpEntries.length?hpEntries.map(([h,l])=>'<span class="kv"><span>'+esc(lblOf(h))+'</span><b>'+esc(l)+'</b></span>').join(''):'<span class="tiny">none</span>';
+      const usedGroups=new Set(em.pick.filter(Boolean).map(c=>c.hold||('C'+c.id)));
+      const holdGroups={};cards.forEach(c=>{if(c.hold)(holdGroups[c.hold]=holdGroups[c.hold]||[]).push(c);});
+      const subPicks=[];
+      Object.entries(holdGroups).sort((a,b)=>ord(a[0])-ord(b[0])).forEach(([h,list])=>{
+        if(usedGroups.has(h))return;
+        let bestC=list[0],bestV=-1;
+        list.forEach(c=>{let v=c.rating/100;if(!emSc.nationSet.has(c.nation))v+=2;if(!emSc.leagueSet.has(leagueOf(c)))v+=2;if(c.type==='normal'&&!emSc.clubSet.has(c.club))v+=1;if(v>bestV){bestV=v;bestC=c;}});
+        subPicks.push({h,label:bestC.label});
+      });
+      const pickPerHold='<div class="panel"><h2>Pick per hold</h2>'+hp+'<div class="tiny" style="margin-top:6px">In hold order. Committed cards need no pick.</div>'+(subPicks.length?'<div class="tiny" style="margin:8px 0 4px;color:var(--mut)">The rest won\u2019t start \u2014 pick these for sub / manager-insurance value:</div>'+subPicks.map(s=>'<span class="kv"><span>'+esc(lblOf(s.h))+'</span><b>'+esc(s.label)+'</b></span>').join(''):'')+'</div>';
+      out.innerHTML=head+'<div class="panel"><h2>Emergency fill</h2><div class="xi">'+rows+'</div></div>'+score+pickPerHold;
       window._solved={main:{sc:emSc,xi:em.pick.filter(Boolean)},form,oopIds};window._bench=cards.filter(c=>!c.hold&&!usedIds.has(c.id)).map(c=>({c,why:''}));$('#mgrPanel').style.display='block';}else{$('#mgrPanel').style.display='none';}
     return;}
   // capped: show best-so-far with option to keep searching at 3x the cap
@@ -2233,11 +2317,11 @@ const SHAPE_LABEL={
   redundancySurcharge:'Full-redundancy surcharge — extra penalty when a card clashes on every dimension it has: nation + league for heroes, nation + club for normals, nation only for icons. Stacks on top of the per-dimension penalties.',
   iconRarityRefundCap:'Rare-nation refund cap — when evaluating a 2nd icon, how much of the icon penalty a sufficiently rare nation can cancel (default 0.6 = up to 60 % back). The effective ceiling is around 0.9 — values above that behave the same.',
   takeThreshold:'Take vs hold gap — how much better the top option must score before the helper calls TAKE instead of HOLD (default 5). Lower = quicker to recommend taking; higher = holds more boards for end-solve.',
-  premHeroRatingThreshold:'Prem-hero rating waiver threshold — rating at which the penalty waiver starts (default 96). Below this, full penalty applies. At this rating the low waiver is fully in effect; above it, the penalty eases further toward the high waiver across the gap.',
-  premHeroRatingGap:'Prem-hero rating waiver gap — rating points above the threshold at which the high waiver is fully in effect (default 2). The waiver interpolates smoothly between low and high across this range, so a card halfway through the gap gets halfway between the two waivers.',
-  premHeroWaiverLow:'Prem-hero low waiver — fraction of the penalty that survives at exactly the threshold rating (default 0.50 = half penalty). 1 = no waiver at threshold; 0 = fully forgiven at threshold.',
-  premHeroWaiverHigh:'Prem-hero high waiver — fraction of the penalty that survives at threshold+gap and above (default 0.20 = 80 % off). Should be lower than the low waiver; the two define the endpoints of the smooth ramp.',
-  premHeroPosWaiver:'Prem-hero position waiver — fraction of the penalty that survives when the card fills an urgent positional gap (default 0.40). Lower = more forgiving for positional emergencies.',
+  premHeroRatingThreshold:'Prem-hero rating threshold — below this rating the full penalty always applies (default 96). Above it, the penalty can ease depending on the fraction settings below. Has no effect unless at least one of those fractions is set below 1.0.',
+  premHeroRatingGap:'Prem-hero rating gap — how many points above the threshold it takes for the ceiling fraction to fully apply (default 2). The penalty fraction ramps smoothly from the low setting to the high setting across this range. Has no effect unless the two fractions differ.',
+  premHeroPenaltyFracLow:'Prem-hero penalty fraction at threshold — how much of the full penalty survives at exactly the threshold rating (1.0 = full penalty, 0 = completely forgiven). Default 1.0 = rating never softens the penalty. Lower this to start easing high-rated Prem heroes.',
+  premHeroPenaltyFracHigh:'Prem-hero penalty fraction at ceiling — fraction of the full penalty that survives at threshold + gap and above (1.0 = still full penalty, 0 = fully forgiven at elite ratings). Set lower than the threshold fraction to create a smooth ramp-down over elite ratings. Default 1.0.',
+  premHeroPenaltyFracUrgentPos:'Prem-hero urgent-position penalty fraction — fraction of the full penalty kept when the card directly fills a critical positional gap in your formation (0.40 = 40% retained, so a big discount for genuine positional need). 0 = free pass, 1 = no discount at all. Default 0.40.',
   commonNatCount:'Common-nation count — how many top nations (by DB card count) to penalise as overrepresented (default 10, roughly France/England/Brazil…). 0 disables. Affects icons, heroes, and normals.',
   commonClubCount:'Common-club count — how many top Prem clubs (by card count) to penalise (default 3, typically Man City/Arsenal/Liverpool). 0 disables. Normals only.',
   commonHeroLeagueCount:'Common hero-league count — how many top hero leagues (by card count) to penalise (default 0 = off). Increase to discourage clustering on the most common hero leagues.',
@@ -2247,15 +2331,16 @@ const SHAPE_LABEL={
   lowIconPenaltyMin:'Low-rated icon min penalty — fraction of icon base value lost when an icon is exactly at the threshold rating (default 0.25 = 25%). Penalty scales up exponentially toward the max as rating drops toward 85.',
   lowIconPenaltyMax:'Low-rated icon max penalty — maximum fraction of icon base value lost, applied at rating 85 and below (default 0.75 = 75%). Must be ≥ the min. The curve from min to max is exponential — it steepens fast near the floor.',
   dominantClashGap:'Dominant-clash rating gap — the rating lead over every clash rival at which clash penalties are halved (default 5). Smaller = more forgiving sooner; larger = only very dominant cards get relief. Asymptotes to zero penalty at large leads — a card 20+ pts ahead of all its rivals on every clashed dimension is treated as effectively clash-free.',
+  outOfFormationPenalty:'Out-of-formation penalty — points subtracted when a card\'s positions have zero overlap with the active formation (default 10). Only fires when squad-awareness is on and a formation is set. Set to 0 to disable.',
 };
 function renderShape(){const el=$('#shapeGrid');if(!el)return;
-  el.innerHTML=Object.keys(SHAPE_DEF).map(k=>{const dec=['iconKeep','iconErosion','heroPenalty','normalFloor','normalSlope','clashBase','clashStack','holdSizeBase','holdDomBoost','redundancySurcharge','iconRarityRefundCap','takeThreshold','premHeroWaiverLow','premHeroWaiverHigh','premHeroPosWaiver','commonNatPenalty','commonClubPenalty','commonHeroLeaguePenalty','lowIconPenaltyMin','lowIconPenaltyMax'];const step=dec.includes(k)?'0.01':'1';return'<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 0"><span style="font-size:11px;color:var(--mut)">'+SHAPE_LABEL[k]+'</span>'+'<input type="number" step="'+step+'" id="shp-'+k+'" value="'+SHAPE[k]+'" style="width:78px;font-size:12px"'
+  el.innerHTML=Object.keys(SHAPE_DEF).map(k=>{const dec=['iconKeep','iconErosion','heroPenalty','normalFloor','normalSlope','clashBase','clashStack','holdSizeBase','holdDomBoost','redundancySurcharge','iconRarityRefundCap','takeThreshold','premHeroPenaltyFracLow','premHeroPenaltyFracHigh','premHeroPenaltyFracUrgentPos','commonNatPenalty','commonClubPenalty','commonHeroLeaguePenalty','lowIconPenaltyMin','lowIconPenaltyMax'];const step=dec.includes(k)?'0.01':'1';return'<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 0"><span style="font-size:11px;color:var(--mut)">'+SHAPE_LABEL[k]+'</span>'+'<input type="number" step="'+step+'" id="shp-'+k+'" value="'+SHAPE[k]+'" style="width:78px;font-size:12px"'
     +' oninput="var _raw=parseFloat(this.value);if(!isNaN(_raw)){SHAPE[\''+k+'\']=_raw;_solveCache=null;}"'
     +' onchange="var _raw=parseFloat(this.value);if(isNaN(_raw))return;var _b=SHAPE_BOUNDS[\''+k+'\'];if(_b){if(_b[0]!==null&&_raw<_b[0]){_raw=_b[0];}if(_b[1]!==null&&_raw>_b[1]){_raw=_b[1];}}SHAPE[\''+k+'\']=_raw;this.value=_raw;_solveCache=null;saveShapeLocal();"'
     +'></div>';}).join('');}
 function resetShape(){SHAPE={...SHAPE_DEF};renderShape();_solveCache=null;saveShapeLocal();}
 renderShape();
-function squadAwareOn(){if(_forceSquad)return true;const el=$('#hSquad');return!!(el&&el.checked);}
+function squadAwareOn(){return _forceSquad;}
 function noHoldOn(){const el=$('#hNoHold');return!!(el&&el.checked);}
 function squadInfo(){ // summarise the squad: type counts (holds weigh half), per nation/league/club the best rating + commit flags.
   // When _squadOverride is set (the solve's projected XI), use that as the base — but ALSO fold in
@@ -2329,7 +2414,7 @@ function squadAdjust(c){
     // Saturation only applies to non-Prem heroes, and only counts distinct leagues —
     // hold groups contribute at most one league (the freshest), so a 4-card hold of
     // LaLiga heroes counts as one distinct league, not four. Prem heroes are exempt
-    // from this curve entirely; they're handled exclusively by premHeroPenalty below.
+    // from this curve entirely; they're handled exclusively by premHeroPenalty in helpValue.
     if(c.league!=='England Premier League'){
       const src2=_squadOverride||cards;
       const heroLgGroups=new Map();
@@ -2347,23 +2432,6 @@ function squadAdjust(c){
       const over=Math.max(0,distinctHeroLeagues-SHAPE.heroFull);
       const m=Math.max(0.2,1-SHAPE.heroPenalty*over);
       adj-=HW.hero*(1-m);
-    }
-    // Prem heroes clash the Prem league slot AND bring no league-link value in a Prem squad —
-    // apply a dedicated surcharge, partially waived for elite ratings or urgent positional need.
-    if(c.league==='England Premier League'&&HW.premHeroPenalty>0){
-      let pen=HW.premHeroPenalty;
-      // high-rating waiver: linear ramp from no waiver below threshold, through low waiver at threshold,
-      // to high waiver at threshold+gap. Smooth — no cliff between the two tiers.
-      const thr=SHAPE.premHeroRatingThreshold||96;
-      const gap=SHAPE.premHeroRatingGap||2;
-      if(c.rating>=thr){
-        const t=Math.min(1,(c.rating-thr)/gap); // 0 at threshold, 1 at threshold+gap
-        const waiverMult=SHAPE.premHeroWaiverLow+t*t*(SHAPE.premHeroWaiverHigh-SHAPE.premHeroWaiverLow);
-        pen*=Math.max(0,Math.min(1,waiverMult));
-      }
-      // urgent position need waiver: only fraction of the penalty survives when filling a critical gap
-      if(_urgentPos&&c.pos&&c.pos.some(p=>_urgentPos.has(p)))pen*=Math.max(0,Math.min(1,SHAPE.premHeroPosWaiver));
-      adj-=pen;
     }
   } // heroes add DISTINCT leagues, so useful up to ~3; degrade after (gentler than icons)
   else{
@@ -2500,10 +2568,38 @@ function helpValue(c){
   v+=rarityNat(c.nation)*HW.nation;
   v+=ratingN(c.rating)*HW.rating;
   if(c.pos&&c.pos.length){
-    const sc=Math.max(...c.pos.map(posScarceN));
+    // Formation-gated scarcity: when squad-awareness is on and a formation is active, only
+    // positions that exist in the formation contribute a scarcity boost. For multi-position cards
+    // the rarest in-formation position wins. Cards with zero overlap get a flat penalty
+    // (SHAPE.outOfFormationPenalty) — they can't start, so holding them is actively bad.
+    let sc=0;
+    if(squadAwareOn()&&chosenForm){
+      const form=FORMS.find(f=>f.name===chosenForm);
+      const formSet=form?new Set(form.slots):null;
+      if(formSet){
+        const inForm=c.pos.filter(p=>formSet.has(p));
+        if(inForm.length){sc=Math.max(...inForm.map(posScarceN));}
+        else{v-=SHAPE.outOfFormationPenalty;} // no positions fit this formation — card is useless as a starter
+      }else{sc=Math.max(...c.pos.map(posScarceN));}
+    }else{sc=Math.max(...c.pos.map(posScarceN));}
     v+=sc*HW.posScarce+(c.pos.length-1)/4*HW.posFlex;
   }
   if(squadAwareOn())v+=squadAdjust(c);
+  // Prem-hero penalty: applied always — not gated on squadAwareOn — because it reflects the
+  // inherent chem cost of a Prem-league hero regardless of board context. This means the pure
+  // card evaluator (squad-awareness off) correctly penalises Prem heroes just as the live helper does.
+  if(c.type==='hero'&&c.league==='England Premier League'&&HW.premHeroPenalty>0){
+    let pen=HW.premHeroPenalty;
+    const thr=SHAPE.premHeroRatingThreshold||96;
+    const gap=SHAPE.premHeroRatingGap||2;
+    if(c.rating>=thr){
+      const t=Math.min(1,(c.rating-thr)/gap); // 0 at threshold, 1 at threshold+gap
+      const penFrac=SHAPE.premHeroPenaltyFracLow+t*t*(SHAPE.premHeroPenaltyFracHigh-SHAPE.premHeroPenaltyFracLow);
+      pen*=Math.max(0,Math.min(1,penFrac));
+    }
+    if(_urgentPos&&c.pos&&c.pos.some(p=>_urgentPos.has(p)))pen*=Math.max(0,Math.min(1,SHAPE.premHeroPenaltyFracUrgentPos));
+    v-=pen;
+  }
   // Common nation/club/hero-league penalty: subtract a fraction of base type value for overrepresented attributes
   if(SHAPE.commonNatPenalty>0&&isCommonNat(c.nation)){
     const base=c.type==='icon'?HW.icon:c.type==='hero'?HW.hero:HW.normalBase;
@@ -2545,7 +2641,7 @@ function rankAndVerdict(list,isCap){
   else if(noHoldOn()&&!isCap){verdict='TAKE';detail='No-hold drafting \u2014 take <b>'+esc(cardName(top.c))+'</b>, the strongest option here, and move on. (Toggle off in Weights to let it suggest holds.)'+lowNote;}
   else{const dom=top.v-ranked[1].v>SHAPE.takeThreshold;
     if(dom){verdict='TAKE';detail='<b>'+esc(cardName(top.c))+'</b> is the clear pick \u2014 strongest on type / club / nation / league / fit. Holding any board with 2+ fieldable cards is theoretically a touch better (keeps end-solve freedom), but TAKE is the clean call.'+lowNote;}
-    else{verdict='HOLD';detail='Two or more undominated options \u2014 bank the board and let the end-solve decide which survives the clashes.'+(isCap?' Must pick now? Take <b>'+esc(cardName(top.c))+'</b>.':'')+lowNote;}
+    else{verdict=isCap?'TAKE':'HOLD';detail=isCap?'No single dominant option, but the captain slot is always a commit \u2014 take <b>'+esc(cardName(top.c))+'</b>, the top-rated pick here.'+lowNote:'Two or more undominated options \u2014 bank the board and let the end-solve decide which survives the clashes.'+lowNote;}
   }
   return {ranked,verdict,detail};
 }
@@ -2569,7 +2665,7 @@ function scoreExplain(){
   if(HW.rating>0)parts.push('rating');
   const pos=[];if(HW.posScarce>0)pos.push('scarce');if(HW.posFlex>0)pos.push('versatile');
   if(pos.length)parts.push(pos.join('/')+' positions (only where they apply)');
-  if(typeof squadAwareOn==='function'&&squadAwareOn()){if(HW.clashAvoid>0)parts.push('clash avoidance');if(HW.posNeed>0)parts.push('needed positions');if(HW.premHeroPenalty>0)parts.push('Prem-hero surcharge (waived for elite rating or urgent positional fit)');}
+  if(typeof squadAwareOn==='function'&&squadAwareOn()){if(HW.clashAvoid>0)parts.push('clash avoidance');if(HW.posNeed>0)parts.push('needed positions');if(HW.premHeroPenalty>0)parts.push('Prem-hero penalty (reduced for elite ratings or urgent positional fit if fractions are set below 1.0)');}
   return 'Score = '+parts.join(' + ')+'. Built from your current weights &mdash; a recommendation, you decide.';
 }
 function judgeBoard(){
@@ -2639,7 +2735,7 @@ function solveContext(nodeCap){
   if(missingSlots.length){
     ctx={key,ok:false,xis:[],missing:[...new Set(missingSlots)]};
   }else{
-    const r=solveBest(form,cards,nodeCap||3000000);
+    const r=solveBest(form,cards,nodeCap||3000000,getRatingCeil());
     const _cap=nodeCap||3000000;ctx=(r.error||!r.bestXIs||!r.bestXIs.length)?{key,ok:false,xis:[],missing:[],cap:_cap}:{key,ok:true,xis:r.bestXIs.slice(0,8),missing:[],capped:r.capped,cap:_cap};
   }
   if(!ctx.capped)_solveCache=ctx; // don't cache a capped result — a deeper search from the Solve tab may find better
@@ -2675,7 +2771,7 @@ function runHelperDeep(cap){
     syncAllSlots();
     const missingSlots=greedyGaps(form.slots,cards);
     if(missingSlots.length){_hideSolverOverlay();judgeSlotInline();return;}
-    const r=solveBest(form,cards,nextCap);
+    const r=solveBest(form,cards,nextCap,getRatingCeil());
     _hideSolverOverlay();
     const ctx=(r.error||!r.bestXIs||!r.bestXIs.length)
       ?{key:boardKey(),ok:false,xis:[],missing:[],capped:false,cap:nextCap}
@@ -2703,8 +2799,8 @@ function judgeSlotInline(preCtx){
   // Coverage flags: silent for the first 11 decided picks. From pick 12 onward, check what
   // this board covers (or doesn't) and flag urgency based on how many picks remain total.
   _urgentPos=null;
-  // Count all decided slots: filled (committed/hold) + busted — both are picks the user has made.
-  const _decidedCount=board?board.filter(sl=>sl.busted||slotState(sl)!=='pending').length:0;
+  // Count all decided slots EXCLUDING the current one — we're making this pick, not counting it as done yet.
+  const _decidedCount=board?board.filter(sl=>sl.id!==s.id&&(sl.busted||slotState(sl)!=='pending')).length:0;
   // Total picks in the draft = all non-busted slots (busts decided later don't add picks).
   // We track absolute pick number (decidedCount + 1 = the pick being made now).
   const _pickNumber=_decidedCount+1; // 1-indexed pick number for this board
@@ -2905,7 +3001,7 @@ function judgeSlotInline(preCtx){
   const ctxNote=ctx?(ctx.ok?'<span class="tiny" style="color:var(--mut)"> \u00b7 judged against your projected XI (starters boosted, bench penalised)</span>':'<span class="tiny" style="color:var(--mut)"> \u00b7 early-draft weights (no complete XI yet)</span>'):'';
   let head;
   if(isCap){
-    head='<div class="bigrow"><div class="tot" style="font-size:26px">'+(opts.length>1?verdict:'CAPTAIN')+'</div></div><div class="tiny" style="color:var(--ink)">'+(opts.length>1?detail:'Pick the strongest \u2014 or, since a captain board is skippable, skip it if everything here is weak (see the rating below).')+'</div>';
+    head='<div class="bigrow"><div class="tot" style="font-size:26px">TAKE</div></div><div class="tiny" style="color:var(--ink)">'+(opts.length>1?detail:'Only one option \u2014 commit it as captain. (Skip the whole board if everything here is too weak to justify picking.)')+'</div>';
   }else{
     head=opts.length===1?'<div class="tiny" style="color:var(--ink)">Committed \u2014 its value against the rest of your board'+ctxNote+':</div>'
       :'<div class="bigrow"><div class="tot" style="font-size:26px">'+verdict+'</div></div><div class="tiny" style="color:var(--ink)">'+detail+ctxNote+'</div>';

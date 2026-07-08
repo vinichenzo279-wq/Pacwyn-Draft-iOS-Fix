@@ -55,7 +55,7 @@
 <meta property="og:description" content="DraftSolver">
 <!-- VERSION: bump this AND the matching v-number in the <h1><span> below on every patch, however
      small — see the longer note next to the <h1> for why this matters. -->
-<title>Draft Solver v17.8.11-iOS</title>
+<title>Draft Solver v17.8.12-iOS</title>
 <!-- ABOUT THIS APP / DATA SOURCE:
      This tool is for PACWYN, a game that heavily parallels EA FC but is NOT FC — it uses FC's
      real player cards as a base and adds its own exclusive cards on top. That's why FC data is a
@@ -4277,7 +4277,17 @@ details.hlp p{font-size:12px;color:var(--mut);margin:8px 0 0;line-height:1.55}
        Everything else (sound solver, UB bounds, diversity, bench/manager, calibration, helper) is
        unchanged from desktop v17.8.11. Expect this build to be more limited and to surface new
        iOS-specific bugs before the async question is genuinely solved. -->
-  <h1 class="cap">&#11041; Draft Solver <span style="font-size:11px;opacity:.55;font-weight:400;letter-spacing:0">v17.8.11-iOS</span></h1>
+  <!-- v17.8.12-iOS -- BUGFIX. All three capped-search messages (main solve _cappedWarnHTML, OOP
+       emergency-fill, target-not-found) unconditionally said "(iOS ceiling)"/"iOS search limit"
+       whenever a search capped -- even when the cap that actually fired was just the user's own
+       (lower) node-cap SETTING (e.g. the 3M default), nothing to do with the real IOS_MAX_NODES=8M
+       safety limit. That misleadingly implied 8M had been reached when it hadn't. Fixed: each
+       message now checks cap>=IOS_MAX_NODES and only attributes it to the iOS safety limit when
+       that's actually true; otherwise it correctly says the user's own node-cap setting was
+       exhausted and points at raising it (up to 8M) in Advanced solver settings. Also fixed a
+       double-escaped unicode regression in the main capped message (\\u26a0 etc. were printing as
+       literal text instead of rendering the warning icon/dash/apostrophe). -->
+  <h1 class="cap">&#11041; Draft Solver <span style="font-size:11px;opacity:.55;font-weight:400;letter-spacing:0">v17.8.12-iOS</span></h1>
   <div class="cap sub">pacwyn draft optimiser</div>
   <div style="position:absolute;right:2px;top:40px;text-align:right;font-size:10px;line-height:1.5;color:var(--mut)">Created by <b style="color:var(--ink)">Chenzo</b><br><span style="opacity:.8">Special thanks to BWFCPackfan</span></div>
 </header>
@@ -7365,7 +7375,7 @@ function _renderEmergencyFillInner(form,cap){
   const head='<div class="note" style="border-color:var(--bad)"><b>No legal full XI</b> \u2014 some positions have no eligible card, so they\u2019re filled <b>out of position at 0 chem</b> as emergency placeholders. '+
     (em.full11?'All 11 slots are covered, but ':'Only '+em.pick.filter(Boolean).length+'/11 could be filled even out of position \u2014 ')+
     'check your busts: a card you binned may legally cover an unfilled slot for far more chem.</div>'+
-    (em.capped?'<div class="note" style="border-color:var(--warn)">\u26a0 This emergency fill was cut short at the '+(em.cap/1000000)+'M search budget (iOS ceiling) \u2014 a better arrangement may exist deeper, but searching further isn\u2019t supported on iOS yet.</div>':'');
+    (em.capped?'<div class="note" style="border-color:var(--warn)">\u26a0 This emergency fill was cut short at the '+(em.cap/1000000)+'M search budget'+(em.cap>=IOS_MAX_NODES?' (iOS safety limit \u2014 searching further isn\u2019t supported on iOS yet)':' \u2014 raise the node cap in Advanced solver settings for a deeper search')+'. A better arrangement may exist deeper.</div>':'');
   let score='';
   if(em.full11&&em.sc){const t=em.sc.rating+em.chem+em.sc.nations+em.sc.leagues+em.sc.clubs;
     score='<div class="panel"><h2>Approx score (emergency)</h2><div class="bigrow"><div class="tot">'+t+'</div><div class="m">rating '+em.sc.rating+' \u00b7 chem '+em.chem+'/33 \u00b7 '+em.sc.nations+' nat \u00b7 '+em.sc.leagues+' lg \u00b7 '+em.sc.clubs+' clb<br><span style="color:var(--bad)">'+em.oopCount+' card'+(em.oopCount===1?'':'s')+' out of position (0 chem each)</span> \u2014 real score rises once you fix coverage.</div></div></div>';}
@@ -7912,7 +7922,7 @@ function _handleSolveResult(r,cap,form,ms,out){
     if(r.capped){
       const nextCap=cap*3;
       // iOS BUILD: deeper search unavailable (node cap hard-limited); no dead escalation buttons.
-      out.innerHTML='<div class="note" style="border-color:var(--warn)">\u26a0 No squad reaching <b>'+_solveTarget+'</b> was found within the iOS search limit ('+(cap/1000000)+'M nodes). It may exist with a deeper search, which isn\u2019t supported on iOS yet \u2014 try lowering the target.</div>';
+      out.innerHTML='<div class="note" style="border-color:var(--warn)">\u26a0 No squad reaching <b>'+_solveTarget+'</b> was found within the '+(cap/1000000)+'M node cap'+(cap>=IOS_MAX_NODES?' (iOS safety limit \u2014 not supported on iOS yet)':'')+'. It may exist with a deeper search'+(cap>=IOS_MAX_NODES?'':' (raise the node cap in Advanced solver settings)')+' \u2014 try lowering the target.</div>';
     }else{
       out.innerHTML='<div class="note" style="border-color:var(--warn)">\u26d4 No squad can reach <b>'+_solveTarget+'</b> on this draft \u2014 the target is impossible here. If you believe that\u2019s wrong, raise the Rating Ceiling and solve again.</div>';
     }
@@ -8825,11 +8835,19 @@ function maxPossibleRating(pool,form){
   return ''; // rc > ub and the search completed uncapped: provably optimal, nothing to flag
 }
 function _cappedWarnHTML(cap){
-  // iOS BUILD: the node cap is hard-limited to IOS_MAX_NODES, so a capped result means we hit the
-  // iOS ceiling and CANNOT go deeper on this device. The desktop "Keep searching (x3)" / "Search to
-  // the end" buttons would just re-run at the same clamped 8M and re-cap immediately (a confusing
-  // no-op loop), so they're removed here. Only an honest explanation + dismiss remains.
-  return '<div class="note" style="border-color:var(--warn);margin-bottom:10px"><b>\u26a0 Search capped at '+(cap/1000000)+'M nodes (iOS ceiling)</b> \u2014 this is the best lineup found within the limit. Searching deeper isn\u2019t supported on iOS yet (it would risk crashing Safari), so a larger or complete search isn\u2019t available in this build. On most drafts the solver finishes well under this and the result is fully optimal; only unusually large pools reach the cap.'
+  // iOS BUILD: two distinct reasons a solve can be capped, and the message must tell them apart:
+  // (a) cap === IOS_MAX_NODES -- the actual iOS safety ceiling was hit (device-crash prevention).
+  // (b) cap < IOS_MAX_NODES -- just the user's own (lower) node-cap SETTING was exhausted, same as
+  // it would on desktop; nothing iOS-specific happened. Previously this always said "(iOS ceiling)"
+  // even when the real cause was e.g. a 3M default setting -- misleading the user into thinking 8M
+  // had been reached when it hadn't. The desktop "Keep searching (x3)" / "Search to the end" buttons
+  // are still removed in both cases (raising the cap higher than the iOS max would just clamp back
+  // down and re-cap in a no-op loop), but the explanation now matches which case actually happened.
+  const atIosMax=cap>=IOS_MAX_NODES;
+  const msg=atIosMax
+    ? 'this is the best lineup found within the iOS safety limit. Searching deeper isn\u2019t supported on iOS yet (it would risk crashing Safari), so a larger or complete search isn\u2019t available in this build. On most drafts the solver finishes well under this and the result is fully optimal; only unusually large pools reach the cap.'
+    : 'this is the best lineup found within your current node cap setting \u2014 raise it in Advanced solver settings (up to '+(IOS_MAX_NODES/1000000)+'M on iOS) for a deeper search, then solve again.';
+  return '<div class="note" style="border-color:var(--warn);margin-bottom:10px"><b>\u26a0 Search capped at '+(cap/1000000)+'M nodes'+(atIosMax?' (iOS safety limit)':'')+'</b> \u2014 '+msg
     +'<div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap">'
     +'<button class="btn gho sm" onclick="this.closest(\'.note\').remove()">Accept this result</button>'
     +'</div>'+_poolSizeWarning()+'</div>';

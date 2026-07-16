@@ -134,7 +134,7 @@
 <meta property="og:description" content="DraftSolver">
 <!-- VERSION: bump this AND the matching v-number in the <h1><span> below on every patch, however
      small — see the longer note next to the <h1> for why this matters. -->
-<title>Draft Solver v19.0.27-iOS</title>
+<title>Draft Solver v21.9.0-iOS</title>
 <!-- ABOUT THIS APP / DATA SOURCE:
      This tool is for PACWYN, a game that heavily parallels EA FC but is NOT FC — it uses FC's
      real player cards as a base and adds its own exclusive cards on top. That's why FC data is a
@@ -4512,7 +4512,8 @@ details.hlp p{font-size:12px;color:var(--mut);margin:8px 0 0;line-height:1.55}
     <!-- v17.8.69-iOS -- DB: added Igor Thiago 95 Brazil, England Premier League, Brentford, ST normal card. -->
     <!-- v18.20.0-iOS -- BULK PORT of the compatible desktop v18.0.0-BETA through v18.20.0-BETA changes onto the standalone iOS fork. The iOS safety contract is unchanged: IOS_MAX_NODES remains 8M; _parallelBetaOn() still hard-returns false; the synchronous solver, confirmation gates, bench/manager path, OOP fill, and capped-search messages remain the v17.8.69-iOS versions. Therefore all worker/resume/Stop/frontier/sharding changes (including desktop v18.20's x3 checkpoint fix) are intentionally N/A here. PORTED: the full current player DB and launch-era league/club registries; strict league-before-club add/edit/helper flows; country/adjective/women league aliases; partial manager name+rating search; 156 demo; pivot ranking by buildable then normal supply then ceiling; version-scoped pivot/no-hold/formation-calibration resets; pivot-filtered formation calibration; objectively fitted nation/club/league rarity plus separate icon/hero effects with non-negative freshness/rarity floors; 300-draft default and 20-draft minimum; supply-discounted pivot buildable; thin-supply penalty; and the four persistent Advanced pivot-analyzer controls with their v18.19.1/.2 editing fixes. Verified with JS syntax checks, iOS-worker-ban assertions, DB/registry parity checks, and targeted advisory/search/calibration smoke tests. -->
   <!-- v19.0.27-iOS -- SAFE PORT of compatible desktop changes after v18.20 onto the standalone iOS fork. Replaced the full player/club/manager data with synchronized clean DB v4.96 (10,061 unique / 10,475 expanded) plus the pidx registry; ported pivot-only calibration sampling, merged rarity histograms, real-person name+pidx dedupe, editable pidx fields, supply-gap/diversity/155-anchor pivot analysis, compact pivot UI, startup analysis, stale-analysis warning, calibration running states, helper pending-calibration warning, simulated-score peak/history reporting, obsolete primary-position warning removal, and stable-id Pick-per-hold disambiguation. iOS safety remains unchanged: IOS_MAX_NODES is 8M, parallel mode still hard-disabled, and no desktop worker/frontier/Stop/deep-search implementation was imported. -->
-<h1 class="cap">&#11041; Draft Solver <span style="font-size:11px;opacity:.55;font-weight:400;letter-spacing:0">v19.0.27-iOS</span></h1>
+<!-- v21.9.0-iOS -- SCORING PARITY PORT: the pivot analyzer is brought up to desktop v21.9. analyzePivots (with its nested greedyCeil/relaxCeil/pivotDraftReliability/_mkPivotScores/render) was swapped wholesale for the desktop version, plus the top-level helpers it needs (_pivRatio, _pivSupplyScores, the four PIVOT_ scoring constants, and the CAL_MIX_CFG/_calMixSanitize cap config with desktop defaults). Result verified identical to desktop: Consistent/High/Max replace the old buildable/likely; Premier League High 156 / Max 159 / Consistent 153.5 ranks first; density and nation-vs-league penalties applied; Max no longer borrows off-pivot ratings/nations/leagues/clubs (the old inflated ceiling is fixed); reliability is the 7-normal position-aware XI test (120/134 reliable), retiring the old supply-discounted buildable and thin/diversity penalty model. The draft-time pivot SCORER (PIVOT_EDGE/PIVOT_RANK/pivotHeadStart/pivotRankPenalty) is byte-unchanged, so drafts behave exactly as before. iOS safety unchanged: IOS_MAX_NODES 8M, no workers, calibration keeps its own sync<=1000 / async>1000 dispatch. NOT YET PORTED (follow-ups): the calibrator internals (icon/hero XI caps + null-reject in _calPlay, no-fallback + configurable mix in _calMakeScripts, v21.9 conditional fitting) and the v21.0 primary-only formation simulator, which stays the lighter iOS variant by design. Dead code left in place for now: the old _expectedVisiblePool and the _pivSupplyPenalty thin-penalty explainer are no longer on the scoring path. -->
+<h1 class="cap">&#11041; Draft Solver <span style="font-size:11px;opacity:.55;font-weight:400;letter-spacing:0">v21.9.0-iOS</span></h1>
   <div class="cap sub">pacwyn draft optimiser</div>
   <div style="position:absolute;right:2px;top:40px;text-align:right;font-size:10px;line-height:1.5;color:var(--mut)">Created by <b style="color:var(--ink)">Chenzo</b><br><span style="opacity:.8">Special thanks to BWFCPackfan</span></div>
 </header>
@@ -11505,6 +11506,41 @@ function _pivotPersonKey(c){
   const px=(c&&c.pidx!==undefined&&c.pidx!==null&&c.pidx!=='')?String(c.pidx).trim():'';
   return px?nm+'|pidx:'+px:nm;
 }
+
+// ===== v21.9 pivot-scoring cluster ported from desktop (scorer internals PIVOT_EDGE/RANK unchanged) =====
+const PIVOT_REQUIRED_NORMALS=7;
+const PIVOT_CONSISTENT_GAP=2.5;      // sim-grounded best-to-typical gap: even the deepest pool's typical draft lands ~2.5 below its greedy High Score (Prem: build 156, sim max 155, typical 153-154)
+const PIVOT_DENSITY_WEIGHT=4;        // points removed per unit of weak-axis over-concentration (calibrated so Spain-nation lands ~1.5 under Spain-LaLiga, matching the sim)
+const PIVOT_DENSITY_FREE_SHARE=0.12; // a pool at least as evenly spread as a full 20-club league pays nothing for concentration
+const PIVOT_MIN_DRAFT_NORMALS=PIVOT_REQUIRED_NORMALS; // the exact seven-normal pivot core; the position-aware XI test handles the rest
+function _pivRatio(value,maxValue){
+  return Math.max(0,Math.min(1,Math.max(0,+value||0)/Math.max(1,+maxValue||1)));
+}
+function _pivSupplyScores(supplyW,maxSupplyW,identityCount,maxIdentityCount){
+  const copiesRatio=_pivRatio(supplyW,maxSupplyW);
+  const identityRatio=_pivRatio(identityCount,maxIdentityCount);
+  const supplyConfidence=copiesRatio*identityRatio;
+  const supplyAdjustment=PIVOT_REQUIRED_NORMALS*(1-supplyConfidence);
+  return {copiesRatio,identityRatio,supplyConfidence,supplyAdjustment};
+}
+// mix caps (icon/hero/special XI limits) shared by the greedy High Score and the calibrator; UI to edit them is desktop-only, iOS uses defaults
+const _CAL_MIX_KEY='pacwyn_cal_mix_v1';
+const _CAL_MIX_DEF={iconAvg:5,heroAvg:15,iconSpread:1.5,heroSpread:2.5,maxIconsXI:2,maxHeroesXI:4,maxSpecialsXI:4};
+const _CAL_MIX_BOUNDS={iconAvg:[0,55],heroAvg:[0,55],iconSpread:[0,20],heroSpread:[0,20],maxIconsXI:[0,11],maxHeroesXI:[0,11],maxSpecialsXI:[0,11]};
+let CAL_MIX_CFG={..._CAL_MIX_DEF};
+function _calMixSanitize(src){
+  src=src||{};const out={};
+  for(const k of Object.keys(_CAL_MIX_DEF)){
+    const b=_CAL_MIX_BOUNDS[k],n=Number(src[k]);
+    out[k]=Number.isFinite(n)?Math.max(b[0],Math.min(b[1],n)):_CAL_MIX_DEF[k];
+  }
+  out.iconAvg=Math.min(55,out.iconAvg);
+  out.heroAvg=Math.min(55-out.iconAvg,out.heroAvg);
+  out.maxIconsXI=Math.round(out.maxIconsXI);out.maxHeroesXI=Math.round(out.maxHeroesXI);out.maxSpecialsXI=Math.round(out.maxSpecialsXI);
+  out.normalAvg=Math.max(0,55-out.iconAvg-out.heroAvg);
+  return out;
+}
+
 function analyzePivots(){
   const src=playerDB.length?playerDB:DEFAULT_DB;
   const W=c=>(typeof c.copies==='number'&&c.copies>0)?c.copies:1;
@@ -11556,197 +11592,209 @@ function analyzePivots(){
   // the sum can never sit under a buildable squad -- over-estimating slightly is the acceptable
   // direction ("ceiling" means at-or-above). The greedy build is kept and now reported as
   // 'buildable' (a genuine floor), so each candidate shows an honest floor..ceiling band.
-  // v19.0.7: pivot person identity is name+pidx only. Nation, club, league, rating,
-  // type and positions are card-version facts and must never split one real person.
-  // Unambiguous names without pidx retain the historical name-only fallback.
-  const _pivotPersonKey=c=>{
-    const nm=(c&&c.name||'').trim().toLowerCase();
-    const px=(c&&c.pidx!==undefined&&c.pidx!==null&&c.pidx!=='')?String(c.pidx).trim():'';
-    return px?nm+'|pidx:'+px:nm;
-  };
+  // v19.0.7/v19.1.0: pivot person identity is name+pidx only. Nation, club, league, rating,
+  // type and positions are card-version facts and must never split one real person. The shared
+  // _pivotPersonKey() declaration above is also used by the Formation Calibrator.
   const _bestPerName=arr=>{const m={};for(const c of arr){const k=_pivotPersonKey(c);if(!m[k]||c.rating>m[k].rating)m[k]=c;}return Object.values(m).sort(byRating);};
-  const _normalsAll=_bestPerName(src.filter(c=>c.type==='normal'));
   const _iconsBest=_bestPerName(iconsArr), _heroesBest=_bestPerName(heroesArr);
-  const _distinctNat=new Set(src.map(c=>c.nation)).size;
-  const _distinctLg=new Set(src.filter(c=>c.type!=='icon').map(c=>leagueOf(c))).size+(iconsArr.length?1:0);
-  const _distinctNormalLg=new Set(src.filter(c=>c.type==='normal').map(c=>leagueOf(c))).size; // v16.8.0: leagues NORMALS can actually supply (1 on an all-PL DB) — the league cap must respect where league points can come from, or every candidate inflates to the same fantasy ceiling
-  const _distinctClub=new Set(src.filter(c=>c.type==='normal'&&c.club).map(c=>c.club)).size;
+  const _pivCaps=_calMixSanitize(CAL_MIX_CFG);
+
+  // v21.6.0: reliability gate rewritten. It no longer tests whether the pool can populate a 55-card
+  // offer board (that accidentally gated on total position-spread depth, e.g. goalkeeper count, not
+  // on whether a draft is buildable -- Germany 3. Liga passed only because it happens to carry 9
+  // keepers, while thin-GK leagues with 60+ outfield normals failed). It now asks the actual question:
+  // can ONE legal XI be fielded? For each formation (all of them, checked exhaustively -- cheap, no
+  // RNG needed): find the maximum matching of PIVOT NORMALS (distinct people, position-eligible) to
+  // that formation's 11 slots. If it reaches >=7 (the chemistry requirement), attempt to fill the
+  // remaining slots (GK and any thin spot) from the global hero/icon pool, again distinct people,
+  // position-eligible. The pivot is reliable if any formation clears both. Consistent/supply already
+  // penalize thin pools elsewhere; this gate only proves a draft is POSSIBLE at all.
+  function pivotDraftReliability(bucketCards,kind,key){
+    if(bucketCards.length<PIVOT_MIN_DRAFT_NORMALS)return {valid:0,attempts:0,underMinimum:true};
+    const normalPeople=new Map(); // personKey -> Set(position)
+    const addPerson=(map,c)=>{
+      const pk=_pivotPersonKey(c);
+      let p=map.get(pk);if(!p){p=new Set();map.set(pk,p);}
+      for(const raw of (c.pos||[])){const pos=normPos(String(raw||''));if(pos)p.add(pos);}
+    };
+    bucketCards.forEach(c=>addPerson(normalPeople,c));
+    if(normalPeople.size<PIVOT_MIN_DRAFT_NORMALS)return {valid:0,attempts:0,underMinimum:true};
+    const normalIds=Array.from(normalPeople.keys());
+    const normalByPos={};
+    normalIds.forEach((pk,idx)=>normalPeople.get(pk).forEach(pos=>(normalByPos[pos]=normalByPos[pos]||[]).push(idx)));
+    const specialByPos={};
+    const addSpecial=c=>{const pk=_pivotPersonKey(c),typ=c.type;for(const raw of(c.pos||[])){const pos=normPos(String(raw||''));if(pos)(specialByPos[pos]=specialByPos[pos]||[]).push({pk,typ});}};
+    iconsArr.forEach(addSpecial);heroesArr.forEach(addSpecial);
+    const canFillSpecials=positions=>{
+      if(positions.length>_pivCaps.maxSpecialsXI)return false;
+      const ordered=positions.slice().sort((a,b)=>(specialByPos[a]||[]).length-(specialByPos[b]||[]).length);
+      const used=new Set();
+      const dfs=(ix,ni,nh)=>{
+        if(ix===ordered.length)return true;
+        for(const o of(specialByPos[ordered[ix]]||[])){
+          if(used.has(o.pk))continue;
+          const xi=ni+(o.typ==='icon'),xh=nh+(o.typ==='hero');
+          if(xi>_pivCaps.maxIconsXI||xh>_pivCaps.maxHeroesXI||xi+xh>_pivCaps.maxSpecialsXI)continue;
+          used.add(o.pk);if(dfs(ix+1,xi,xh))return true;used.delete(o.pk);
+        }
+        return false;
+      };
+      return dfs(0,0,0);
+    };
+    // Simple augmenting-path (Kuhn's) bipartite matcher: slot index -> candidate person index.
+    const matchSlots=(slots,byPos,personCount)=>{
+      const matchPerson=new Int32Array(personCount).fill(-1); // person idx -> slot idx
+      const slotMatched=new Array(slots.length).fill(false);
+      const tryAugment=(slotIdx,seen)=>{
+        const cands=byPos[slots[slotIdx]]||[];
+        for(const pid of cands){
+          if(seen.has(pid))continue;seen.add(pid);
+          if(matchPerson[pid]<0||tryAugment(matchPerson[pid],seen)){matchPerson[pid]=slotIdx;return true;}
+        }
+        return false;
+      };
+      for(let s=0;s<slots.length;s++){if(tryAugment(s,new Set()))slotMatched[s]=true;}
+      return {matchPerson,slotMatched};
+    };
+    let attempts=0;
+    for(const form of FORMS){
+      attempts++;
+      const slots=form.slots;
+      const {matchPerson:normalMatch,slotMatched:normalSlotMatched}=matchSlots(slots,normalByPos,normalIds.length);
+      const normalCount=normalSlotMatched.reduce((n,v)=>n+(v?1:0),0);
+      if(normalCount<PIVOT_REQUIRED_NORMALS)continue; // this formation's positions can't seat 7 distinct pivot normals
+      const remainingSlots=[];slots.forEach((pos,i)=>{if(!normalSlotMatched[i])remainingSlots.push(i);});
+      if(!remainingSlots.length)return {valid:1,attempts,underMinimum:false}; // all 11 filled by normals alone
+      const remainingPos=remainingSlots.map(i=>slots[i]);
+      if(canFillSpecials(remainingPos))return {valid:1,attempts,underMinimum:false};
+    }
+    return {valid:0,attempts,underMinimum:false};
+  }
+
+  function _shapeRatings(bucket,n,i,h){
+    const groups={normal:bucket,icon:_iconsBest,hero:_heroesBest};
+    const need={normal:n,icon:i,hero:h};
+    const orders=[['normal','icon','hero'],['normal','hero','icon'],['icon','normal','hero'],['icon','hero','normal'],['hero','normal','icon'],['hero','icon','normal']];
+    let best=null;
+    for(const order of orders){
+      const used=new Set(),picked=[];let ok=true;
+      for(const typ of order){
+        let left=need[typ];
+        for(const c of groups[typ]){if(!left)break;const pk=_pivotPersonKey(c);if(used.has(pk))continue;used.add(pk);picked.push(c);left--;}
+        if(left){ok=false;break;}
+      }
+      if(!ok)continue;
+      const rating=Math.floor(futRatingRaw(picked.map(c=>c.rating)));
+      if(!best||rating>best.rating)best={rating,picked};
+    }
+    return best;
+  }
   function relaxCeil(bucketCards,diversityKind){
     const bucket=_bestPerName(bucketCards);
-    if(bucket.length<7)return null; // same sole viability rule as the greedy build
-    const bucketNames=new Set(bucket.slice(0,7).map(_pivotPersonKey));
-    const restNormals=_normalsAll.filter(c=>!bucketNames.has(_pivotPersonKey(c)));
+    if(bucket.length<PIVOT_REQUIRED_NORMALS)return null;
+    const bucketNat=new Set(bucket.map(c=>c.nation)),bucketLg=new Set(bucket.map(leagueOf)),bucketClub=new Set(bucket.filter(c=>c.club).map(c=>c.club));
+    const specialNat=new Set([..._iconsBest,..._heroesBest].filter(c=>!bucketNat.has(c.nation)).map(c=>c.nation));
+    const heroLg=new Set(_heroesBest.filter(c=>!bucketLg.has(leagueOf(c))).map(leagueOf));
     let best=-1,bestShape=null;
-    for(let i=0;i<=Math.min(1,_iconsBest.length);i++){
-      for(let h=0;h<=Math.min(3,_heroesBest.length);h++){
-        const n=11-i-h;if(n<7)continue;
-        if(restNormals.length<n-7)continue;
-        const ratings=[];
-        for(let k=0;k<7;k++)ratings.push(bucket[k].rating);
-        for(let k=0;k<n-7;k++)ratings.push(restNormals[k].rating);
-        for(let k=0;k<i;k++)ratings.push(_iconsBest[k].rating);
-        for(let k=0;k<h;k++)ratings.push(_heroesBest[k].rating);
-        const rating=Math.floor(futRatingRaw(ratings));
-        const nations=diversityKind==='league'?Math.min(11,_distinctNat):Math.min(5,_distinctNat);
-        // v16.8.0 league caps are SOURCE-AWARE (still admissible): a squad's league points can only
-        // come from (a) its normals — at most min(extra-normal count, distinct NORMAL leagues beyond
-        // the pivot's own) new ones on top of the shared bucket league, (b) its h heroes — at most h,
-        // (c) an icon — at most the 'Icons' league once. On an all-PL-normals DB (a) is zero, which
-        // is exactly why an 11-normal shape can't pretend to 11 leagues anymore.
-        const leagues=diversityKind==='league'
-          ?Math.min(_distinctLg,1+Math.min(n-7,Math.max(0,_distinctNormalLg-1))+h+(i>0?1:0))
-          :Math.min(11,_distinctLg,Math.min(n,_distinctNormalLg)+h+(i>0?1:0));
-        const clubs=Math.min(n,_distinctClub)+(i>0?1:0)+(h>0?1:0);
-        const total=rating+33+nations+leagues+clubs+2; // +2 manager, as in the greedy build
-        if(total>best){best=total;bestShape={i,h,n,rating,nations,leagues,clubs};}
+    for(let i=0;i<=Math.min(_pivCaps.maxIconsXI,_iconsBest.length);i++){
+      for(let h=0;h<=Math.min(_pivCaps.maxHeroesXI,_heroesBest.length);h++){
+        if(i+h>_pivCaps.maxSpecialsXI)continue;
+        const n=11-i-h;if(n<PIVOT_REQUIRED_NORMALS||bucket.length<n)continue;
+        const rr=_shapeRatings(bucket,n,i,h);if(!rr)continue;
+        const nations=Math.min(11,Math.min(n,bucketNat.size)+Math.min(i+h,specialNat.size));
+        const leagues=Math.min(11,Math.min(n,bucketLg.size)+Math.min(h,heroLg.size)+(i>0&&!bucketLg.has('Icons')?1:0));
+        const clubs=Math.min(n,bucketClub.size)+(i>0?1:0)+(h>0?1:0);
+        const total=rr.rating+33+nations+leagues+clubs+2;
+        if(total>best){best=total;bestShape={i,h,n,rating:rr.rating,nations,leagues,clubs};}
       }
     }
     return best<0?null:{total:best,shape:bestShape};
   }
-  // ---- v18.18.0 SUPPLY-DISCOUNTED BUILDABLE (expected visible pool) -----------------------------
-  // PROBLEM (found on the first multi-league/multi-nation DB): the old 'buildable' greedy treated
-  // the DB as a SHOP -- it deterministically handed every pivot its top-rated bucket cards, so a
-  // nation with 7 elite prints but only ~250 copies-weighted supply printed the same 155+ buildable
-  // as the EPL with 1300+. Supply only gated viability (>=7 bodies) and broke ties; it never touched
-  // the number. In a real draft you only SEE a limited random sample, so thin buckets can't actually
-  // field their paper-best seven.
-  // MODEL: treat the draft as copies-weighted sampling. E = PIVOT_DRAFT_EXPOSURES * (bucketSupply /
-  // totalNormalSupply) is the expected number of bucket-card sightings. Order statistics: the j-th
-  // best of E draws from a copies-expanded list of total weight Wb sits at expected weighted rank
-  // j*(Wb+1)/(E+1). So instead of feeding greedy ranks 1..7, we feed it the cards at those
-  // discounted weighted ranks -- big supply => ranks collapse toward 1..7 (EPL keeps its top cards),
-  // thin supply => the build is forced deep into its own rating curve, and the number drops honestly.
-  // The final buildable is min(full-pool greedy, expected-pool greedy): greedy is a heuristic, so a
-  // RESTRICTED pool can occasionally luck into a higher-scoring XI than the full pool -- the min()
-  // restores 'subset can never beat the shop' sanity and guarantees buildable <= ceiling still holds
-  // (expected <= full greedy <= relaxation).
-  // CALIBRATION: PIVOT_DRAFT_EXPOSURES is FITTED, not derived -- swept so the EPL (supply 1316 on
-  // the v18.17 DB) lands at exactly its once-achieved real-world record of 155 while every other
-  // candidate falls below (K=200 dropped EPL to 154; K>=350 let LaLiga/France tie at 155; K=300 is
-  // the anchor point). Re-check this anchor whenever the DB grows materially.
-  // REJECTED ALTERNATIVE (documented, unused): Monte Carlo -- deal N synthetic copies-weighted
-  // drafts, greedy-build each pivot per dealt pool, report P90. Strictly more honest, but expensive
-  // for what is a rough advisory estimate whose main job is ranking pivots; the deterministic
-  // order-statistic pool gets the same supply sensitivity in O(bucket) with zero variance. Revisit
-  // only if the deterministic version demonstrably misranks in practice (the ~150-sim calibration
-  // harness infrastructure could be reused; iOS would need a low N or to keep this path).
-  // KNOWN RESIDUAL LIMITATION: the discount works by pushing picks DEEPER into the bucket's own
-  // rating curve, so a bucket with barely more distinct cards than the seven it needs (e.g. a
-  // 7-card league, or Norway's ~41 supply) has no depth to be pushed into and keeps a flattering
-  // number even though E<<7 means a real draft would rarely show even half its bucket. If that
-  // proves misleading once the DB fills out, the candidate fix is a viability/annotation gate on
-  // E<7 ("expected sightings can't fill the seven"), NOT an ad-hoc score penalty -- deliberately
-  // left unimplemented pending a product call.
-  // v18.19.0: the exposure constant moved to the user-tunable PIV settings block (see PIV_DEF).
-  const PIVOT_DRAFT_EXPOSURES=Math.max(1,+PIV.EXPOSURES||PIV_DEF.EXPOSURES);
-  function _expectedVisiblePool(bucketCards,supplyW){
-    const sorted=bucketCards.slice().sort(byRating);
-    const cum=[];let acc=0;for(const c of sorted){acc+=W(c);cum.push(acc);}
-    const Wb=acc;if(!Wb)return [];
-    const E=PIVOT_DRAFT_EXPOSURES*supplyW/totalNormalW;
-    const draws=Math.max(7,Math.floor(E)); // always offer at least 7 sightings so the >=7-distinct viability rule keeps deciding, not this pool
-    const denom=(E>=7?E:7)+1; // E<7: stretch the 7 expected sightings across the whole list (deep, weak picks -- the honest read for near-unviable supply)
-    const pool=[];const usedNames=new Set();
-    for(let j=1;j<=draws;j++){
-      let r=j*(Wb+1)/denom;if(r>Wb)break;
-      let idx=0;while(idx<cum.length&&cum[idx]<r)idx++;
-      let k=idx;while(k<sorted.length&&usedNames.has(sorted[k].name))k++; // two prints of one player are one sighting slot -- walk deeper
-      if(k>=sorted.length){k=idx;while(k>=0&&usedNames.has(sorted[k].name))k--;if(k<0)break;} // deep end exhausted: walk back up so a >=7-distinct bucket always yields >=7 pool entries
-      usedNames.add(sorted[k].name);pool.push(sorted[k]);
-    }
-    return pool;
-  }
-  function greedyCeil(bucketCards,diversityKind,_legacyKindArg,poolOverride){ // v18.18.0: _legacyKindArg preserves the historical 3-arg call shape (the 3rd positional was never read -- see maintainer note in Section Z); poolOverride, when present, is the supply-discounted expected visible pool
-    if(bucketCards.length<7)return null; // can't fill the pivot's own 7 -- the only null case
-    const pool=(poolOverride&&poolOverride.length>=7)?poolOverride:bucketCards.slice().sort(byRating); // a <7-distinct-name expected pool (dup-print buckets) falls back to the undiscounted list rather than dropping the candidate
+  // Honest best-case construction from the same legal pool as Max: pivot normals plus global
+  // Icons/Heroes only. No off-pivot normal is ever used, and every tested shape respects the XI caps.
+  function greedyCeil(bucketCards,diversityKind,_legacyKindArg,poolOverride){
+    if(bucketCards.length<PIVOT_REQUIRED_NORMALS)return null;
+    const pool=(poolOverride&&poolOverride.length>=PIVOT_REQUIRED_NORMALS)?poolOverride:bucketCards.slice().sort(byRating);
     const chosen=[];const used=new Set();
     const natSeen=new Set(),clubSeen=new Set(),lgSeen=new Set();
-    const take=c=>{
-      chosen.push(c);used.add(c);
-      natSeen.add(c.nation);lgSeen.add(leagueOf(c));
-      if(c.type!=='icon')clubSeen.add(c.club);
-    };
+    const take=c=>{chosen.push(c);used.add(c);natSeen.add(c.nation);lgSeen.add(leagueOf(c));if(c.type!=='icon')clubSeen.add(c.club);};
     const newClub=c=>(c.type==='icon')||!clubSeen.has(c.club);
     const newBoth=c=>diversityKind==='league'?(!natSeen.has(c.nation)&&newClub(c)):(!lgSeen.has(leagueOf(c))&&newClub(c));
     const newEither=c=>diversityKind==='league'?(!natSeen.has(c.nation)||newClub(c)):(!lgSeen.has(leagueOf(c))||newClub(c));
     const pickFrom=arr=>arr.find(c=>!used.has(c)&&newBoth(c))||arr.find(c=>!used.has(c)&&newEither(c))||arr.find(c=>!used.has(c));
 
-    // Step 1: exactly 7 from the pivot's own bucket, diversity-first (both dims > one dim > best rating)
-    while(chosen.length<7){const pick=pickFrom(pool);if(!pick)break;take(pick);}
+    while(chosen.length<PIVOT_REQUIRED_NORMALS){const pick=pickFrom(pool);if(!pick)break;take(pick);}
 
-    // Step 2: real best icon (new-nation preferred), real best <=3 heroes (new league/nation preferred),
-    // pulled from the WHOLE db -- always safe since heroes/icons are flat-3 chem regardless of league.
-    const bestIcon=iconsSorted.find(c=>!used.has(c)&&!natSeen.has(c.nation))||iconsSorted.find(c=>!used.has(c));
-    if(bestIcon)take(bestIcon);
-    let heroesTaken=0;
-    while(heroesTaken<3){
-      const pick=heroesSorted.find(c=>!used.has(c)&&(!lgSeen.has(leagueOf(c))||!natSeen.has(c.nation)))
-                ||heroesSorted.find(c=>!used.has(c));
-      if(!pick)break;
-      take(pick);heroesTaken++;
+    let iconsTaken=0,heroesTaken=0;
+    if(_pivCaps.maxIconsXI>0&&_pivCaps.maxSpecialsXI>0){
+      const bestIcon=iconsSorted.find(c=>!used.has(c)&&!natSeen.has(c.nation))||iconsSorted.find(c=>!used.has(c));
+      if(bestIcon){take(bestIcon);iconsTaken=1;}
+    }
+    const heroLimit=Math.min(3,_pivCaps.maxHeroesXI,_pivCaps.maxSpecialsXI-iconsTaken);
+    while(heroesTaken<heroLimit){
+      const pick=heroesSorted.find(c=>!used.has(c)&&(!lgSeen.has(leagueOf(c))||!natSeen.has(c.nation)))||heroesSorted.find(c=>!used.has(c));
+      if(!pick)break;take(pick);heroesTaken++;
     }
 
-    // Step 3: pad to 11 -- first diversity-first from the pivot's own bucket, then absolute last resort
-    // from the whole DB (never gates validity, just fills bodies if the DB is too thin elsewhere).
     while(chosen.length<11){const pick=pickFrom(pool);if(!pick)break;take(pick);}
-    if(chosen.length<11){
-      for(const c of src){if(chosen.length>=11)break;if(!used.has(c))take(c);}
-    }
-    const raw=scoreXI(chosen);
-    const chem=3*chosen.length; // hardcoded: a pivot is assumed to always hit the flat shortcut
-    const total=raw.rating+chem+raw.nations+raw.leagues+raw.clubs;
-    return {raw:{...raw,chem,total,full:true},total:total+2}; // +2 manager, not a card in the XI
+    if(chosen.length<11)return null; // no off-pivot normals: a thin pool that cannot fill the XI fails
+    const raw=scoreXI(chosen),chem=33,total=raw.rating+chem+raw.nations+raw.leagues+raw.clubs;
+    return {raw:{...raw,chem,total,full:true},total:total+2};
   }
   const out=[];
-  // v18.23.0: relative supply is measured against the deepest VIABLE candidate of either kind.
-  // Candidates below seven distinct cards are excluded from this reference for the same reason they
-  // are excluded from the results: they cannot supply the mandatory seven pivot normals at all.
-  const maxPivotSupply=Math.max(1,
-    ...Object.values(lg).filter(x=>x.cards.length>=7).map(x=>x.w),
-    ...Object.values(nat).filter(x=>x.cards.length>=7).map(x=>x.w));
-  // v19.0.17: the demonstrated 155 calibration belongs to the deepest viable LEAGUE pivot.
-  // Keep that reference separate from maxPivotSupply so a future giant nation bucket cannot steal
-  // the league anchor merely by accumulating cards across many leagues.
-  const maxLeaguePivotSupply=Math.max(1,
-    ...Object.values(lg).filter(x=>x.cards.length>=7).map(x=>x.w));
-  const PIVOT_BUILDABLE_ANCHOR=155;
-  // Buildable = round(discounted greedy - absolute thin-supply - relative supply-gap - diversity-concentration penalties).
-  // The absolute Hill curve is on
-  // copies-weighted supply (see _pivSupplyPenalty): ~0 for deep buckets, brutal for thin ones. It is
-  // subtracted from the ALREADY pool-discounted number, then rounded. The deepest viable league is
-  // then floored at the demonstrated 155 anchor; all other pivots remain fully formula-driven. Penalty
-  // is non-negative and the 155 anchor remains below the validated ceiling, so buildable <= ceiling holds.
-  const _mkBuildable=(gFull,gExp,supplyW,diversity,isLeague)=>{
-    const base=Math.min(gFull.total,gExp?gExp.total:gFull.total);
-    const thinPenalty=_pivSupplyPenalty(supplyW);
-    const relativePenalty=_pivRelativeSupplyPenalty(supplyW,maxPivotSupply);
-    const diversityPenalty=_pivDiversityPenalty(diversity&&diversity.effective);
-    const penalty=thinPenalty+relativePenalty+diversityPenalty;
-    const rounded=Math.round(base-penalty);
-    // v19.0.17: 155 is an observed buildable squad, so the advisory floor must not fall below it
-    // merely because unrelated leagues were appended to the catalogue. Apply the floor to the
-    // deepest viable LEAGUE, never by league name. Other candidates keep their unmodified formula.
-    const isAnchor=!!isLeague&&supplyW>=maxLeaguePivotSupply-1e-9;
-    const buildable=isAnchor?Math.max(PIVOT_BUILDABLE_ANCHOR,rounded):rounded;
-    const anchorBonus=buildable-rounded;
-    return {buildable,rawBuildable:base,penalty,thinPenalty,relativePenalty,diversityPenalty,anchorBonus,isAnchor};
+  const viableBuckets=[
+    ...Object.values(lg).filter(x=>x.cards.length>=7),
+    ...Object.values(nat).filter(x=>x.cards.length>=7)
+  ];
+  const maxPivotSupply=Math.max(1,...viableBuckets.map(x=>x.w));
+  const maxPivotIdentities=Math.max(1,...viableBuckets.map(x=>new Set(x.cards.map(_pivotPersonKey)).size));
+  // High Score is the honest, supply-blind best XI the pool could build if the draws fall right (never
+  // renamed to hide that it ignores supply, and it may legitimately exceed the record — those builds
+  // just aren't realistically draftable). Consistent is what you'd reliably hit: High Score minus
+  //   (a) a best-to-typical gap the sim shows even for the deepest pool (~2.5: Prem sim max 155, greedy
+  //       build 156, typical 153-154),
+  //   (b) the supply shortfall (the thinner the pool, the less often you're offered its own cards, so
+  //       you land further under the supply-blind sim number), and
+  //   (c) a within-pivot DENSITY penalty. _pivDiversityStats gives the dominant share of the pivot's
+  //       weak diversity axis — biggest CLUB's share for a league pivot (PSG in Ligue 1), biggest
+  //       LEAGUE's share for a nation pivot (Spain clustering in LaLiga). A concentrated pool keeps
+  //       re-offering the same club/league, so the diverse build High Score assumes is realized less
+  //       often. This is symmetric across kinds and replaces the old nation-only league penalty, which
+  //       the sim showed was too harsh: it now makes home-clustered nations pay a little (Spain ~1.5
+  //       under LaLiga, matching the sim) while globally-spread nations (Argentina) pay almost nothing,
+  //       and it finally charges dense leagues like Ligue 1 for their club concentration.
+  const _mkPivotScores=(gFull,supplyW,identityCount,kind,dominantShare)=>{
+    const highScore=gFull.total;
+    const supply=_pivSupplyScores(supplyW,maxPivotSupply,identityCount,maxPivotIdentities);
+    const diversityPenalty=PIVOT_DENSITY_WEIGHT*Math.max(0,(+dominantShare||0)-PIVOT_DENSITY_FREE_SHARE);
+    const consistent=highScore-supply.supplyAdjustment-diversityPenalty-PIVOT_CONSISTENT_GAP;
+    return {buildable:highScore,likelyScore:consistent,diversityPenalty,...supply};
   };
   for(const L in lg){
-    if(L==='Icons')continue;
-    const g=greedyCeil(lg[L].cards,c=>c.type==='hero'?2:1,'league');
-    const gx=greedyCeil(lg[L].cards,c=>c.type==='hero'?2:1,'league',_expectedVisiblePool(lg[L].cards,lg[L].w)); // v18.18.0: same greedy, supply-discounted pool
-    const rc=relaxCeil(lg[L].cards,'league'); // v16.8.0: the CEILING is the relaxation (true upper bound); greedy is the buildable floor
+    if(L==='Icons'||lg[L].cards.length<7)continue;
+    const identities=new Set(lg[L].cards.map(_pivotPersonKey)).size;
+    const draft=pivotDraftReliability(lg[L].cards,'league',L);
+    if(!draft.valid){out.push({kind:'league',key:L,unreliable:true,draftValid:0,draftAttempts:draft.attempts,normalCardCount:lg[L].cards.length,identityCount:identities,reliability:Math.round(lg[L].w)});continue;}
+    const g=greedyCeil(lg[L].cards,'league');
+    const rc=relaxCeil(lg[L].cards,'league');
     const diversity=_pivDiversityStats(lg[L].cards,'league',W);
-    if(g&&rc){const b=_mkBuildable(g,gx,lg[L].w,diversity,true);out.push({kind:'league',key:L,ceiling:rc.total,buildable:b.buildable,rawBuildable:b.rawBuildable,penalty:b.penalty,thinPenalty:b.thinPenalty,relativePenalty:b.relativePenalty,diversityPenalty:b.diversityPenalty,diversityEffective:diversity.effective,diversityDominantShare:diversity.dominantShare,diversityCategories:diversity.categories,shape:rc.shape,reliability:Math.round(lg[L].w),isAnchor:b.isAnchor,detail:g.raw});} // reliability is copies-weighted NORMALS only: these are the seven bucket bodies the build actually requires
+    if(g&&rc){const b=_mkPivotScores(g,lg[L].w,identities,'league',diversity.dominantShare);out.push({kind:'league',key:L,ceiling:rc.total,buildable:b.buildable,likelyScore:b.likelyScore,copiesRatio:b.copiesRatio,identityRatio:b.identityRatio,supplyConfidence:b.supplyConfidence,supplyAdjustment:b.supplyAdjustment,identityCount:identities,diversityEffective:diversity.effective,diversityDominantShare:diversity.dominantShare,diversityCategories:diversity.categories,shape:rc.shape,reliability:Math.round(lg[L].w),detail:g.raw,draftValid:draft.valid,draftAttempts:draft.attempts});}
   }
   for(const N in nat){
-    const g=greedyCeil(nat[N].cards,c=>c.type==='icon'?2:1,'nation');
-    const gx=greedyCeil(nat[N].cards,c=>c.type==='icon'?2:1,'nation',_expectedVisiblePool(nat[N].cards,nat[N].w));
+    if(nat[N].cards.length<7)continue;
+    const identities=new Set(nat[N].cards.map(_pivotPersonKey)).size;
+    const draft=pivotDraftReliability(nat[N].cards,'nation',N);
+    if(!draft.valid){out.push({kind:'nation',key:N,unreliable:true,draftValid:0,draftAttempts:draft.attempts,normalCardCount:nat[N].cards.length,identityCount:identities,reliability:Math.round(nat[N].w)});continue;}
+    const g=greedyCeil(nat[N].cards,'nation');
     const rc=relaxCeil(nat[N].cards,'nation');
     const diversity=_pivDiversityStats(nat[N].cards,'nation',W);
-    if(g&&rc){const b=_mkBuildable(g,gx,nat[N].w,diversity,false);out.push({kind:'nation',key:N,ceiling:rc.total,buildable:b.buildable,rawBuildable:b.rawBuildable,penalty:b.penalty,thinPenalty:b.thinPenalty,relativePenalty:b.relativePenalty,diversityPenalty:b.diversityPenalty,diversityEffective:diversity.effective,diversityDominantShare:diversity.dominantShare,diversityCategories:diversity.categories,shape:rc.shape,reliability:Math.round(nat[N].w),isAnchor:false,detail:g.raw});}
+    if(g&&rc){const b=_mkPivotScores(g,nat[N].w,identities,'nation',diversity.dominantShare);out.push({kind:'nation',key:N,ceiling:rc.total,buildable:b.buildable,likelyScore:b.likelyScore,copiesRatio:b.copiesRatio,identityRatio:b.identityRatio,supplyConfidence:b.supplyConfidence,supplyAdjustment:b.supplyAdjustment,identityCount:identities,diversityEffective:diversity.effective,diversityDominantShare:diversity.dominantShare,diversityCategories:diversity.categories,shape:rc.shape,reliability:Math.round(nat[N].w),detail:g.raw,draftValid:draft.valid,draftAttempts:draft.attempts});}
   }
-  out.sort((a,b)=>((b.buildable||0)-(a.buildable||0))||((b.isAnchor?1:0)-(a.isAnchor?1:0))||(b.reliability-a.reliability)||(b.ceiling-a.ceiling));
+  out.sort((a,b)=>{
+    if(!!a.unreliable!==!!b.unreliable)return a.unreliable?1:-1;
+    if(a.unreliable)return (b.normalCardCount-a.normalCardCount)||(b.identityCount-a.identityCount)||(b.reliability-a.reliability)||a.key.localeCompare(b.key);
+    return (b.likelyScore-a.likelyScore)||(b.buildable-a.buildable)||(b.reliability-a.reliability)||(b.ceiling-a.ceiling);
+  });
   return out;
 }
 // v18.19.0: advanced pivot-analyzer settings plumbing. Writes straight into PIV, persists, and
